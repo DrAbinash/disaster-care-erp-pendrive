@@ -1,0 +1,7 @@
+Before you unplug this stick:
+
+1. End the emergency session (owner).
+2. Download CSV for CARE — confirm a file exists in the export\ folder.
+3. Then close the black window and eject the USB safely.
+
+Bills live in data\emergency-store.json on this stick. If you lose the stick, paper receipts are the backup.

@@ -1,0 +1,15 @@
+node_modules
+data/emergency-store.json
+data/emergency-store.json.tmp
+data/seed/*.json
+data/seed/*.csv
+!data/seed/.gitkeep
+export/*.csv
+export/*.json
+!export/.gitkeep
+runtime
+dist
+pack-out
+*.log
+.env
+.DS_Store
