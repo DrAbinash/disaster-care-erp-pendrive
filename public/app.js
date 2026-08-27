@@ -367,8 +367,8 @@ async function saveBill() {
 function printReceipt(t) {
   const el = $("#receipt");
   if (!el) return;
-  const refDoctor = String(t.referringDoctorName || "").trim() || "Walk-in";
-  const patientName = `${t.patient.firstName || ""} ${t.patient.lastName || ""}`.trim();
+  const refDoctor = String(t.referringDoctorName || "").trim().toUpperCase() || "WALK-IN";
+  const patientName = `${t.patient.firstName || ""} ${t.patient.lastName || ""}`.trim().toUpperCase();
   const uhid = t.patient.uhid ? String(t.patient.uhid) : "";
   const mobile = t.patient.mobile ? String(t.patient.mobile) : "";
   const when = t.createdAt
@@ -378,12 +378,13 @@ function printReceipt(t) {
     .filter((p) => Number(p.amount) > 0)
     .map((p) => `${p.method} ${fmt(p.amount)}`)
     .join(" · ") || "—";
+  const logoSrc = (typeof window !== "undefined" && window.CARE_LOGO_DATA_URL) || "care-logo.png";
   el.classList.remove("hidden");
   el.setAttribute("aria-hidden", "false");
   el.innerHTML = `
     <div class="rcpt-sheet">
       <header class="rcpt-head">
-        <img class="rcpt-logo" src="/care-logo.png" alt="CARE Diagnostics" />
+        <img class="rcpt-logo" src="${logoSrc}" alt="CARE Diagnostics" />
         <div class="rcpt-title">CARE DIAGNOSTICS RECEIPT (EMG)</div>
         <div class="rcpt-addr">
           Subhash Chowk, Castair's Town, Deoghar<br />
@@ -421,11 +422,22 @@ function printReceipt(t) {
       <div class="rcpt-staff"><b>Billed by</b> ${escapeHtml(t.createdByStaffName || "")}</div>
       <p class="rcpt-note">Emergency receipt (EMG). Valid for services rendered. Final CARE bill is confirmed after reconciliation — please keep this slip.</p>
     </div>`;
-  // Defer print so the logo can paint; hide UI so only A5 receipt prints.
-  requestAnimationFrame(() => {
+
+  let printed = false;
+  const finishPrint = () => {
+    if (printed) return;
+    printed = true;
     window.print();
     api("/api/bills/" + t.emergencyTransactionUuid + "/reprint", { method: "POST" }).catch(() => {});
-  });
+  };
+  const img = el.querySelector(".rcpt-logo");
+  if (img && !img.complete) {
+    img.onload = finishPrint;
+    img.onerror = finishPrint;
+    setTimeout(finishPrint, 800);
+  } else {
+    requestAnimationFrame(finishPrint);
+  }
 }
 
 function renderBills() {
