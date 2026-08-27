@@ -397,6 +397,13 @@ describe("pendrive catalogue seed CSVs", () => {
     expect(doctors.doctors[0]).toEqual({ id: 2, name: 'Dr. "A" Patel', specialization: "Radiology" });
   });
 
+  it("accepts doctor_name column alias in doctors.csv", () => {
+    const csv = "id,doctor_name,specialization\n3,Dr Alias,Pathology\n";
+    const doctors = parseDoctorsSeedCsv(csv);
+    expect(doctors.errors).toEqual([]);
+    expect(doctors.doctors).toEqual([{ id: 3, name: "Dr Alias", specialization: "Pathology" }]);
+  });
+
   it("rejects a billing CSV as a tests seed", () => {
     const { tests, errors } = parseTestsSeedCsv("format,emergency_transaction_uuid\nCARE_EMERGENCY_BILLING_V1,x\n");
     expect(tests).toEqual([]);

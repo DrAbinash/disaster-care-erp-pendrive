@@ -8,6 +8,8 @@ import { csvCell, parseCsvLine } from "./csv";
 
 export const SEED_TESTS_COLUMNS = ["id", "code", "name", "category", "price", "is_active"] as const;
 export const SEED_DOCTORS_COLUMNS = ["id", "name", "specialization"] as const;
+/** Alternate header CARE exports sometimes use instead of `name`. */
+export const SEED_DOCTORS_NAME_ALIASES = ["name", "doctor_name", "referring_doctor_name"] as const;
 
 export type SeedTestRow = MasterDataSnapshot["services"][number];
 export type SeedDoctorRow = MasterDataSnapshot["doctors"][number];
@@ -77,7 +79,8 @@ export function parseDoctorsSeedCsv(raw: string): { doctors: SeedDoctorRow[]; er
   const lines = raw.replace(/^\uFEFF/, "").split(/\r?\n/).filter((l) => l.trim());
   if (lines.length < 2) return { doctors: [], errors: ["doctors.csv has no data rows"] };
   const header = parseCsvLine(lines[0]!);
-  if (!headerOk(header, SEED_DOCTORS_COLUMNS)) {
+  const nameCol = SEED_DOCTORS_NAME_ALIASES.find((col) => header.includes(col));
+  if (!header.includes("id") || !nameCol || !header.includes("specialization")) {
     return { doctors: [], errors: ["doctors.csv is missing required columns id,name,specialization"] };
   }
   const idx = (name: string) => header.indexOf(name);
@@ -90,7 +93,7 @@ export function parseDoctorsSeedCsv(raw: string): { doctors: SeedDoctorRow[]; er
       errors.push(`doctors.csv row ${i + 1}: invalid id`);
       continue;
     }
-    const name = get("name").trim();
+    const name = get(nameCol).trim();
     if (!name) {
       errors.push(`doctors.csv row ${i + 1}: name is required`);
       continue;

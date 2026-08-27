@@ -97,18 +97,20 @@ async function loadSeedFromDisk() {
   const masterRaw = (await tryRead("CARE_EMERGENCY_MASTER_V1.json")) || (await tryRead("master.json"));
   if (masterRaw) {
     store.applyMasterSnapshot(parseMasterSnapshot(JSON.parse(masterRaw)));
-    await store.save();
-    return;
   }
   const testsRaw = await tryRead("tests.csv");
   if (testsRaw) {
     const parsed = parseTestsSeedCsv(testsRaw);
-    if (parsed.tests.length) store.applyTests(parsed.tests);
+    if (parsed.tests.length && (!masterRaw || store.data.services.length === 0)) {
+      store.applyTests(parsed.tests);
+    }
   }
   const doctorsRaw = await tryRead("doctors.csv");
   if (doctorsRaw) {
     const parsed = parseDoctorsSeedCsv(doctorsRaw);
-    if (parsed.doctors.length) store.applyDoctors(parsed.doctors);
+    if (parsed.doctors.length && (!masterRaw || store.data.doctors.length === 0)) {
+      store.applyDoctors(parsed.doctors);
+    }
   }
   await store.save();
 }
