@@ -13,13 +13,12 @@ await build({
   target: "node22",
   outfile: path.join(root, "pack-out/app/server.mjs"),
   packages: "bundle",
+  // Only shim `require` for CJS deps. Do NOT declare `__dirname`/`__filename`
+  // here — esbuild already injects those for ESM output, and a second
+  // declaration crashes Node with "Identifier '__dirname' has already been declared".
   banner: {
     js: `import { createRequire as __pendriveCreateRequire } from "node:module";
-import { fileURLToPath as __pendriveFileURLToPath } from "node:url";
-import { dirname as __pendriveDirname } from "node:path";
 const require = __pendriveCreateRequire(import.meta.url);
-const __filename = __pendriveFileURLToPath(import.meta.url);
-const __dirname = __pendriveDirname(__filename);
 `,
   },
   alias: {

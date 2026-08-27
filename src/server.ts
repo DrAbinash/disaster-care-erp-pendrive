@@ -23,8 +23,10 @@ import {
 } from "@workspace/emergency-billing";
 import { PendriveStore } from "./store.ts";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = process.env.PENDRIVE_ROOT || path.resolve(__dirname, "..");
+// Avoid naming this `__dirname` — esbuild's ESM CJS shim already declares that
+// name in the bundled server.mjs and a second declaration crashes Node on boot.
+const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = process.env.PENDRIVE_ROOT || path.resolve(moduleDir, "..");
 const COOKIE = "emg_usb_session";
 const SESSION_HOURS = Number(process.env.SESSION_HOURS || 8);
 const ADMIN_ROLES = new Set(["admin", "super_admin"]);
