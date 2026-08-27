@@ -111,7 +111,6 @@ function renderMain() {
         <h2>Today's emergency bills</h2>
         <div id="bills"></div>
       </div>
-      <div id="receipt" class="receipt hidden"></div>
     </div>`;
   $("#logout").onclick = async () => { await api("/api/logout", { method: "POST" }); state.me = null; render(); };
   if ($("#start")) $("#start").onclick = startSession;
@@ -367,22 +366,66 @@ async function saveBill() {
 
 function printReceipt(t) {
   const el = $("#receipt");
+  if (!el) return;
   const refDoctor = String(t.referringDoctorName || "").trim() || "Walk-in";
+  const patientName = `${t.patient.firstName || ""} ${t.patient.lastName || ""}`.trim();
+  const uhid = t.patient.uhid ? String(t.patient.uhid) : "";
+  const mobile = t.patient.mobile ? String(t.patient.mobile) : "";
+  const when = t.createdAt
+    ? new Date(t.createdAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })
+    : new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
+  const payLine = (t.payments || [])
+    .filter((p) => Number(p.amount) > 0)
+    .map((p) => `${p.method} ${fmt(p.amount)}`)
+    .join(" · ") || "—";
   el.classList.remove("hidden");
+  el.setAttribute("aria-hidden", "false");
   el.innerHTML = `
-    <h2>CARE Ultra-Emergency Receipt</h2>
-    <div><b>${t.emergencyBillNumber}</b></div>
-    <div>${t.patient.firstName} ${t.patient.lastName} ${t.patient.uhid || ""}</div>
-    <div>${t.patient.mobile}</div>
-    <div><b>Ref. Doctor</b> ${escapeHtml(refDoctor)}</div>
-    <table>${t.lines.map((l) => `<tr><td>${l.serviceName}</td><td>${l.quantity}</td><td>${fmt(l.lineGross)}</td></tr>`).join("")}</table>
-    <p>Gross ${fmt(t.grossAmount)} · Discount ${fmt(t.discountAmount)} · Net ${fmt(t.netAmount)}</p>
-    <p>Received ${fmt(t.amountReceived)} · Due ${fmt(t.dueAmount)}</p>
-    <p>${t.payments.map((p) => p.method + " " + fmt(p.amount)).join(" · ")}</p>
-    <p>Staff: ${t.createdByStaffName}</p>
-    <p>This is an emergency receipt. Final CARE bill is issued after reconciliation.</p>`;
-  window.print();
-  api("/api/bills/" + t.emergencyTransactionUuid + "/reprint", { method: "POST" }).catch(() => {});
+    <div class="rcpt-sheet">
+      <header class="rcpt-head">
+        <img class="rcpt-logo" src="/care-logo.png" alt="CARE Diagnostics" />
+        <div class="rcpt-title">CARE DIAGNOSTICS RECEIPT (EMG)</div>
+        <div class="rcpt-addr">
+          Subhash Chowk, Castair's Town, Deoghar<br />
+          Phone 9973497200 · care.deoghar@gmail.com · www.caredeoghar.com
+        </div>
+      </header>
+      <div class="rcpt-meta">
+        <div><b>Receipt No</b> ${escapeHtml(t.emergencyBillNumber)}</div>
+        <div><b>Date</b> ${escapeHtml(when)}</div>
+      </div>
+      <div class="rcpt-patient">
+        <div><b>Patient</b> ${escapeHtml(patientName)}${uhid ? ` · ${escapeHtml(uhid)}` : ""}</div>
+        <div><b>Mobile</b> ${escapeHtml(mobile || "—")}</div>
+        <div><b>Ref. Doctor</b> ${escapeHtml(refDoctor)}</div>
+      </div>
+      <table class="rcpt-lines">
+        <thead><tr><th>Test / Service</th><th class="num">Qty</th><th class="num">Amount</th></tr></thead>
+        <tbody>
+          ${(t.lines || []).map((l) => `
+            <tr>
+              <td>${escapeHtml(l.serviceName)}</td>
+              <td class="num">${Number(l.quantity) || 1}</td>
+              <td class="num">${fmt(l.lineGross)}</td>
+            </tr>`).join("")}
+        </tbody>
+      </table>
+      <div class="rcpt-totals">
+        <div><span>Gross</span><strong>${fmt(t.grossAmount)}</strong></div>
+        <div><span>Discount</span><strong>${fmt(t.discountAmount)}</strong></div>
+        <div class="net"><span>Net</span><strong>${fmt(t.netAmount)}</strong></div>
+        <div><span>Received</span><strong>${fmt(t.amountReceived)}</strong></div>
+        <div><span>Due</span><strong>${fmt(t.dueAmount)}</strong></div>
+      </div>
+      <div class="rcpt-pay"><b>Payment</b> ${escapeHtml(payLine)}</div>
+      <div class="rcpt-staff"><b>Billed by</b> ${escapeHtml(t.createdByStaffName || "")}</div>
+      <p class="rcpt-note">Emergency receipt (EMG). Valid for services rendered. Final CARE bill is confirmed after reconciliation — please keep this slip.</p>
+    </div>`;
+  // Defer print so the logo can paint; hide UI so only A5 receipt prints.
+  requestAnimationFrame(() => {
+    window.print();
+    api("/api/bills/" + t.emergencyTransactionUuid + "/reprint", { method: "POST" }).catch(() => {});
+  });
 }
 
 function renderBills() {
