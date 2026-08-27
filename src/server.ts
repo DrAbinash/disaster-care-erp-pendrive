@@ -72,11 +72,15 @@ function masterSyncStatus() {
 }
 
 async function ensureBootstrapOwner() {
-  if (store.data.staff.length > 0) return;
   const pin = process.env.PENDRIVE_BOOTSTRAP_PIN || "1234";
+  const existing = store.data.staff.find((s) => s.username.toLowerCase() === "owner");
+  if (existing) return;
+  // Keep a local unlock account even after CARE USB seed is applied, so
+  // reception can still open the stick if they forget the CARE username.
   const pinHash = await bcrypt.hash(pin, 10);
+  const maxId = store.data.staff.reduce((m, s) => Math.max(m, Number(s.id) || 0), 0);
   store.data.staff.push({
-    id: 1,
+    id: maxId + 1 || 1,
     name: "Pendrive owner",
     username: "owner",
     role: "super_admin",
@@ -179,10 +183,18 @@ export async function createApp() {
       res.status(400).json({ error: "Username and PIN required" });
       return;
     }
-    const u = store.data.staff.find((s) => s.username.toLowerCase() === username);
+    // Match CARE username (e.g. abinash). Also accept email local-part
+    // (abinashsingh@gmail.com → try abinashsingh) as a convenience.
+    const localPart = username.includes("@") ? username.split("@")[0]! : username;
+    const u = store.data.staff.find((s) => {
+      const uname = s.username.toLowerCase();
+      return uname === username || uname === localPart;
+    });
     if (!u || !u.pinHash || !(await bcrypt.compare(pin, u.pinHash))) {
       await audit(null, "login_failed", null, username, req.ip);
-      res.status(401).json({ error: "Invalid username or PIN" });
+      res.status(401).json({
+        error: "Invalid username or PIN. Use your CARE username (not full email), e.g. abinash — or owner / 1234.",
+      });
       return;
     }
     const token = randomBytes(32).toString("hex");

@@ -163,3 +163,76 @@ describe("pendrive seed merge on boot", () => {
     expect(rows[0].name).toBe("Dr Seed Merge");
   });
 });
+
+describe("pendrive login after CARE master seed", () => {
+  let base = "";
+  let tmp = "";
+  let close: () => Promise<void>;
+
+  beforeAll(async () => {
+    vi.resetModules();
+    tmp = await mkdtemp(path.join(os.tmpdir(), "pendrive-login-"));
+    process.env.PENDRIVE_ROOT = tmp;
+    process.env.PENDRIVE_BOOTSTRAP_PIN = pin;
+    await mkdir(path.join(tmp, "data", "seed"), { recursive: true });
+    await mkdir(path.join(tmp, "export"), { recursive: true });
+    await mkdir(path.join(tmp, "public"), { recursive: true });
+    await writeFile(path.join(tmp, "public", "index.html"), "<div id='app'></div>");
+
+    const pinHash = await (await import("bcryptjs")).default.hash(pin, 4);
+    const master = {
+      format: "CARE_EMERGENCY_MASTER_V1",
+      version: 1,
+      syncedAt: "2026-08-14T11:35:00.000Z",
+      services: [{ id: 1, code: "MRI-BR", name: "MRI Brain", category: "MRI", price: 4000, isActive: true }],
+      doctors: [{ id: 2, name: "Dr Test", specialization: "Radiology" }],
+      patients: [],
+      staff: [{
+        id: 1, name: "Dr Abinash Kumar", username: "abinash", role: "super_admin",
+        pinHash, maxDiscount: 100, permissions: null,
+      }],
+      discountReasons: [],
+    };
+    await writeFile(path.join(tmp, "data", "seed", "CARE_EMERGENCY_MASTER_V1.json"), JSON.stringify(master));
+
+    const { createApp } = await import("./server");
+    const app = await createApp();
+    const server = createServer(app);
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const addr = server.address();
+    if (!addr || typeof addr === "string") throw new Error("no port");
+    base = `http://127.0.0.1:${addr.port}`;
+    close = () => new Promise((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
+  }, 20_000);
+
+  afterAll(async () => {
+    await close?.();
+    await rm(tmp, { recursive: true, force: true });
+  });
+
+  it("accepts CARE username abinash and keeps owner fallback after seed", async () => {
+    const care = await fetch(base + "/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: "abinash", pin }),
+    });
+    expect(care.status).toBe(200);
+    expect((await care.json()).name).toBe("Dr Abinash Kumar");
+
+    const owner = await fetch(base + "/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: "owner", pin }),
+    });
+    expect(owner.status).toBe(200);
+
+    const email = await fetch(base + "/api/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: "abinashsingh@gmail.com", pin }),
+    });
+    expect(email.status).toBe(401);
+    const err = await email.json();
+    expect(err.error).toMatch(/CARE username/i);
+  });
+});

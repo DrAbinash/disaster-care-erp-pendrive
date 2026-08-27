@@ -72,7 +72,7 @@ function renderLogin() {
           <label>PIN</label>
           <input name="pin" type="password" autocomplete="current-password" required />
           <div class="row" style="margin-top:12px"><button type="submit">Login</button></div>
-          <p class="muted">If this stick was never seeded from CARE, login <b>owner</b> / PIN <b>1234</b> then upload tests + doctors.</p>
+          <p class="muted">Use your <b>CARE username</b> (not email) + PIN from the USB seed. Example: <b>abinash</b> — not abinashsingh@gmail.com. Fallback: <b>owner</b> / <b>1234</b>.</p>
           <p id="err" class="muted"></p>
         </form>
       </div>
