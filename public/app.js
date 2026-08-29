@@ -72,7 +72,7 @@ function renderLogin() {
           <label>PIN</label>
           <input name="pin" type="password" autocomplete="current-password" required />
           <div class="row" style="margin-top:12px"><button type="submit">Login</button></div>
-          <p class="muted">If this stick was never seeded from CARE, login <b>owner</b> / PIN <b>1234</b> then upload tests + doctors.</p>
+          <p class="muted">Use your <b>CARE username</b> (not email) + PIN from the USB seed. Example: <b>abinash</b> — not abinashsingh@gmail.com. Fallback: <b>owner</b> / <b>1234</b>.</p>
           <p id="err" class="muted"></p>
         </form>
       </div>
@@ -111,7 +111,6 @@ function renderMain() {
         <h2>Today's emergency bills</h2>
         <div id="bills"></div>
       </div>
-      <div id="receipt" class="receipt hidden"></div>
     </div>`;
   $("#logout").onclick = async () => { await api("/api/logout", { method: "POST" }); state.me = null; render(); };
   if ($("#start")) $("#start").onclick = startSession;
@@ -254,38 +253,36 @@ function bindBillForm() {
       };
     });
   });
-  $("#dq").oninput = debounce(async (e) => {
-    const q = e.target.value.trim();
-    if (state.referringDoctor && q !== state.referringDoctor.name) state.referringDoctor = null;
-    const box = $("#dsug");
-    const picked = $("#docpicked");
-    if (q.length < 1) {
-      state.referringDoctor = null;
-      box.classList.add("hidden");
-      if (picked) picked.textContent = "Walk-in / none";
-      return;
-    }
-    const rows = await api("/api/doctors?q=" + encodeURIComponent(q));
-    box.classList.remove("hidden");
-    box.innerHTML = `<div data-id="">Walk-in / none</div>` + rows.map((d) =>
-      `<div data-id="${d.id}">${escapeHtml(d.name)}${d.specialization ? " · " + escapeHtml(d.specialization) : ""}</div>`
-    ).join("");
-    box.querySelectorAll("div[data-id]").forEach((el) => {
-      el.onclick = () => {
-        if (!el.dataset.id) {
-          state.referringDoctor = null;
-          $("#dq").value = "";
-          if (picked) picked.textContent = "Walk-in / none";
-        } else {
-          const d = rows.find((x) => String(x.id) === el.dataset.id);
-          state.referringDoctor = d ? { id: d.id, name: d.name, specialization: d.specialization || "" } : null;
-          $("#dq").value = d?.name || "";
-          if (picked) picked.textContent = d ? (d.name + (d.specialization ? " · " + d.specialization : "")) : "Walk-in / none";
-        }
-        box.classList.add("hidden");
-      };
-    });
-  });
+  if ($("#dq")) {
+    const loadDocs = async (q) => {
+      const box = $("#dsug");
+      const picked = $("#docpicked");
+      if (!box) return;
+      if (state.referringDoctor && q && q !== state.referringDoctor.name) state.referringDoctor = null;
+      const rows = await api("/api/doctors?q=" + encodeURIComponent(q || ""));
+      box.classList.remove("hidden");
+      box.innerHTML = `<div data-id="">Walk-in / none</div>` + rows.map((d) =>
+        `<div data-id="${d.id}">${escapeHtml(d.name)}${d.specialization ? " · " + escapeHtml(d.specialization) : ""}</div>`
+      ).join("") || `<div class="muted">No doctors in cache — upload doctors.csv or USB seed</div>`;
+      box.querySelectorAll("div[data-id]").forEach((el) => {
+        el.onclick = () => {
+          if (!el.dataset.id) {
+            state.referringDoctor = null;
+            $("#dq").value = "";
+            if (picked) picked.textContent = "Walk-in / none";
+          } else {
+            const d = rows.find((x) => String(x.id) === el.dataset.id);
+            state.referringDoctor = d ? { id: d.id, name: d.name, specialization: d.specialization || "" } : null;
+            $("#dq").value = d?.name || "";
+            if (picked) picked.textContent = d ? (d.name + (d.specialization ? " · " + d.specialization : "")) : "Walk-in / none";
+          }
+          box.classList.add("hidden");
+        };
+      });
+    };
+    $("#dq").oninput = debounce(async (e) => { await loadDocs(e.target.value.trim()); }, 150);
+    $("#dq").onfocus = async (e) => { await loadDocs(e.target.value.trim()); };
+  }
   $("#sq").oninput = debounce(async (e) => {
     const q = e.target.value.trim();
     if (q.length < 1) { $("#ssug").classList.add("hidden"); return; }
@@ -331,6 +328,7 @@ async function saveBill() {
   $("#berr").textContent = "";
   try {
     const doc = state.referringDoctor;
+    const typedDocName = ($("#dq")?.value || "").trim();
     const txn = await api("/api/bills", {
       method: "POST",
       body: {
@@ -344,8 +342,8 @@ async function saveBill() {
           ageValue: $("#age").value ? Number($("#age").value) : null,
           ageUnit: "years",
         },
-        referringDoctorId: doc?.id || null,
-        referringDoctorName: doc?.name || null,
+        referringDoctorId: doc?.id ?? null,
+        referringDoctorName: doc?.name || typedDocName || null,
         lines: state.lines.map((l) => ({ careServiceId: l.careServiceId, quantity: l.quantity })),
         discountAmount: Number($("#disc").value || 0),
         discountReason: $("#dreason").value || null,
@@ -363,35 +361,93 @@ async function saveBill() {
     printReceipt(txn);
     await refreshBills();
     render();
-    printReceipt(txn);
   } catch (err) { $("#berr").textContent = err.message; }
 }
 
 function printReceipt(t) {
   const el = $("#receipt");
+  if (!el) return;
+  const refDoctor = String(t.referringDoctorName || "").trim().toUpperCase() || "WALK-IN";
+  const patientName = `${t.patient.firstName || ""} ${t.patient.lastName || ""}`.trim().toUpperCase();
+  const uhid = t.patient.uhid ? String(t.patient.uhid) : "";
+  const mobile = t.patient.mobile ? String(t.patient.mobile) : "";
+  const when = t.createdAt
+    ? new Date(t.createdAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })
+    : new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
+  const payLine = (t.payments || [])
+    .filter((p) => Number(p.amount) > 0)
+    .map((p) => `${p.method} ${fmt(p.amount)}`)
+    .join(" · ") || "—";
+  const logoSrc = (typeof window !== "undefined" && window.CARE_LOGO_DATA_URL) || "care-logo.png";
   el.classList.remove("hidden");
+  el.setAttribute("aria-hidden", "false");
   el.innerHTML = `
-    <h2>CARE Ultra-Emergency Receipt</h2>
-    <div><b>${t.emergencyBillNumber}</b></div>
-    <div>${t.patient.firstName} ${t.patient.lastName} ${t.patient.uhid || ""}</div>
-    <div>${t.patient.mobile}</div>
-    <table>${t.lines.map((l) => `<tr><td>${l.serviceName}</td><td>${l.quantity}</td><td>${fmt(l.lineGross)}</td></tr>`).join("")}</table>
-    <p>Gross ${fmt(t.grossAmount)} · Discount ${fmt(t.discountAmount)} · Net ${fmt(t.netAmount)}</p>
-    <p>Received ${fmt(t.amountReceived)} · Due ${fmt(t.dueAmount)}</p>
-    <p>${t.payments.map((p) => p.method + " " + fmt(p.amount)).join(" · ")}</p>
-    <p>Staff: ${t.createdByStaffName}</p>
-    <p>This is an emergency receipt. Final CARE bill is issued after reconciliation.</p>`;
-  window.print();
-  api("/api/bills/" + t.emergencyTransactionUuid + "/reprint", { method: "POST" }).catch(() => {});
+    <div class="rcpt-sheet">
+      <header class="rcpt-head">
+        <img class="rcpt-logo" src="${logoSrc}" alt="CARE Diagnostics" />
+        <div class="rcpt-title">CARE DIAGNOSTICS RECEIPT (EMG)</div>
+        <div class="rcpt-addr">
+          Subhash Chowk, Castair's Town, Deoghar<br />
+          Phone 9973497200 · care.deoghar@gmail.com · www.caredeoghar.com
+        </div>
+      </header>
+      <div class="rcpt-meta">
+        <div><b>Receipt No</b> ${escapeHtml(t.emergencyBillNumber)}</div>
+        <div><b>Date</b> ${escapeHtml(when)}</div>
+      </div>
+      <div class="rcpt-patient">
+        <div><b>Patient</b> ${escapeHtml(patientName)}${uhid ? ` · ${escapeHtml(uhid)}` : ""}</div>
+        <div><b>Mobile</b> ${escapeHtml(mobile || "—")}</div>
+        <div><b>Ref. Doctor</b> ${escapeHtml(refDoctor)}</div>
+      </div>
+      <table class="rcpt-lines">
+        <thead><tr><th>Test / Service</th><th class="num">Qty</th><th class="num">Amount</th></tr></thead>
+        <tbody>
+          ${(t.lines || []).map((l) => `
+            <tr>
+              <td>${escapeHtml(l.serviceName)}</td>
+              <td class="num">${Number(l.quantity) || 1}</td>
+              <td class="num">${fmt(l.lineGross)}</td>
+            </tr>`).join("")}
+        </tbody>
+      </table>
+      <div class="rcpt-totals">
+        <div><span>Gross</span><strong>${fmt(t.grossAmount)}</strong></div>
+        <div><span>Discount</span><strong>${fmt(t.discountAmount)}</strong></div>
+        <div class="net"><span>Net</span><strong>${fmt(t.netAmount)}</strong></div>
+        <div><span>Received</span><strong>${fmt(t.amountReceived)}</strong></div>
+        <div><span>Due</span><strong>${fmt(t.dueAmount)}</strong></div>
+      </div>
+      <div class="rcpt-pay"><b>Payment</b> ${escapeHtml(payLine)}</div>
+      <div class="rcpt-staff"><b>Billed by</b> ${escapeHtml(t.createdByStaffName || "")}</div>
+      <p class="rcpt-note">Emergency receipt (EMG). Valid for services rendered. Final CARE bill is confirmed after reconciliation — please keep this slip.</p>
+    </div>`;
+
+  let printed = false;
+  const finishPrint = () => {
+    if (printed) return;
+    printed = true;
+    window.print();
+    api("/api/bills/" + t.emergencyTransactionUuid + "/reprint", { method: "POST" }).catch(() => {});
+  };
+  const img = el.querySelector(".rcpt-logo");
+  if (img && !img.complete) {
+    img.onload = finishPrint;
+    img.onerror = finishPrint;
+    setTimeout(finishPrint, 800);
+  } else {
+    requestAnimationFrame(finishPrint);
+  }
 }
 
 function renderBills() {
   const el = $("#bills");
   if (!el) return;
-  el.innerHTML = `<table><thead><tr><th>No</th><th>Patient</th><th>Net</th><th>Paid</th><th>Due</th><th>Status</th><th></th></tr></thead><tbody>
+  el.innerHTML = `<table><thead><tr><th>No</th><th>Patient</th><th>Ref. Doctor</th><th>Net</th><th>Paid</th><th>Due</th><th>Status</th><th></th></tr></thead><tbody>
     ${state.bills.map((b) => `<tr>
       <td>${escapeHtml(b.emergencyBillNumber)}</td>
       <td>${escapeHtml(b.patient.firstName + " " + b.patient.lastName)}</td>
+      <td>${escapeHtml(b.referringDoctorName || "Walk-in")}</td>
       <td>${fmt(b.netAmount)}</td>
       <td>${fmt(b.amountReceived)}</td>
       <td>${fmt(b.dueAmount)}</td>
